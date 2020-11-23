@@ -164,11 +164,7 @@ default_free_pages(struct Page *base, size_t n) {
 >
 > 如果ucore执行过程中存在访问内存，出现了页访问异常，请问硬件要做哪些事情
 
-注释
-
-![image-20201115213050948](image-20201115213050948.png)
-
-```
+```c
 pte:Page Table Entry 页表项 (二级页表项)
 pde：Page Director Entry 页目录项(一级页表项)
 get_pte函数：获取某一页表项，并以线性地址的形式返回其内核虚拟地址
@@ -194,16 +190,16 @@ PTE_U           0x004 ：用户可访问
 pte_t *
 get_pte(pde_t *pgdir, uintptr_t la, bool create) {
 pde_t *pdep = &pgdir[PDX(la)]; //通过线性地址查找到对应的页目录表项的索引并使pde_t指向该页表目录项
-    if (!(*pdep & PTE_P)) {		//检查其PTE_P位是否为1(虚拟页面是否在物理页表中)
-        //虚拟页面不在页框中，则分配页框    
+    if (!(*pdep & PTE_P)) {		//检查页表项PTE_P位是否为1(页是否在内存中)
+        //不在则分配页    
         struct Page *page;		
         if (!create || (page = alloc_page()) == NULL) {//分配页框
             return NULL;
         }
         set_page_ref(page, 1);			//设置页的引用值
-        uintptr_t pa = page2pa(page);	 //得到页面物理地址
+        uintptr_t pa = page2pa(page);	 //左移12位得到页面物理地址
         memset(KADDR(pa), 0, PGSIZE);	 //用0初始化(清理)页面
-        *pdep = (pa & 0x0FFF)| PTE_U | PTE_W | PTE_P; //填写目录表项内容
+        *pdep = pa | PTE_U | PTE_W | PTE_P; //填写目录表项内容
         
     }
     return &((pte_t *)KADDR(PDE_ADDR(*pdep)))[PTX(la)];
@@ -215,19 +211,23 @@ pde_t *pdep = &pgdir[PDX(la)]; //通过线性地址查找到对应的页目录�
     
 ```
 
-```c
-#define PTE_ADDR(pte)   ((uintptr_t)(pte) & ~0xFFF) 
-#define PDE_ADDR(pde)   PTE_ADDR(pde)
+问题一：
 
-```
+页目录项：前20位保存页表的物理地址
 
-Question:
+页表项：前20位存储虚拟地址对应的物理地址
 
-> 为什么一个物理页面的大小为4096位？
->
-> 为什么高20位作为页面数
->
-> page2pa
+问题二：
+
+进行换页操作：
+
+\- 首先 CPU 将产生页访问异常的线性地址放到 cr2 寄存器中
+
+\- 然后就是和普通的中断一样保护现场，将寄存器的值压入栈中，然后压入 `error_code` 中断服务例程将外存的数据换到内存中来
+
+\- 最后退出中断，回到进入中断前的状态
+
+
 
 ### 练习三
 
